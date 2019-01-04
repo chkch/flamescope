@@ -18,13 +18,15 @@
 
 import React, { Component } from 'react'
 import PropTypes from 'prop-types'
-import { Dimmer, Loader, Divider, Container, Button, Input } from 'semantic-ui-react'
+import { Dimmer, Loader, Divider, Container, Button, Input, Dropdown } from 'semantic-ui-react'
 import { pushBreadcrumb, popBreadcrumb } from '../../actions/Navbar'
 import { connect } from 'react-redux'
 import { flamegraph } from 'd3-flame-graph'
 import { select } from 'd3-selection'
 import 'd3-flame-graph/dist/d3-flamegraph.css'
 import './flamegraph.less'
+import queryString from 'query-string'
+import { layout } from '../../config.jsx'
 
 const styles = {
     container: {
@@ -34,7 +36,10 @@ const styles = {
         fontSize: '14px',
         fontWeight: 300,
         minHeight: '5em',
-    }
+    },
+    layoutDropdown: {
+        marginRight: 3.25,
+    },
 }
 
 class FlameGraph extends Component {
@@ -48,15 +53,24 @@ class FlameGraph extends Component {
             'handleSearchInputChange',
             'handleSearchClick',
             'handleOnKeyDown',
+            'updateSearchQuery',
+            'handleLayoutChange',
         ].forEach((k) => {
           this[k] = this[k].bind(this);
         });
+
+        const preferredLayout = () => {
+            if(localStorage.getItem('layout')){
+                return localStorage.getItem('layout');
+            } else return layout.flame;
+        }
     
         this.state = {
           data: {},
           loading: false,
           chart: null,
           searchTerm: '',
+          layout: preferredLayout()
         };
     }
 
@@ -74,7 +88,7 @@ class FlameGraph extends Component {
         const { filename, start, end } = this.props.match.params
 
         this.setState({loading: true})
-        fetch('/stack/?filename=' + filename + '&start=' + start + '&end=' + end)
+        fetch('/flamegraph/?filename=' + filename + '&start=' + start + '&end=' + end)
             .then(res => {
                 return res.json()
             })
@@ -84,12 +98,35 @@ class FlameGraph extends Component {
             .then( () => {
                 this.drawFlamegraph()
             })
+            .then( () => {
+                const query = queryString.parse(this.props.location.search);
+                const sq = query["search"];
+                if (sq) {
+                    this.setState({searchTerm: sq});
+                    this.state.chart.search(sq);
+                }
+            })
+
     }
 
     componentWillUnmount() {
         const { filename, start, end } = this.props.match.params
         this.props.popBreadcrumb('flamegraph_' + filename + '_' + start + '_' + end)
         this.props.popBreadcrumb('f_heatmap_' + filename)
+    }
+
+    UNSAFE_componentWillReceiveProps(nextProps) {
+        if (nextProps.location.search !== this.props.location.search) {
+            const query = queryString.parse(nextProps.location.search);
+            const sq = query['search'];
+            if (sq) {
+                this.setState({searchTerm: sq});
+                this.state.chart.search(sq);
+            } else {
+                this.setState({searchTerm: ''});
+                this.state.chart.clear()
+            }
+        }
     }
 
     drawFlamegraph() {
@@ -103,6 +140,8 @@ class FlameGraph extends Component {
             .transitionDuration(750)
             .sort(true)
             .title('')
+            .minFrameSize(5)
+            .inverted(this.state.layout === layout.icicle)
 
         var details = document.getElementById("details")
         chart.details(details)
@@ -119,8 +158,7 @@ class FlameGraph extends Component {
     }
 
     handleClearClick() {
-        this.setState({searchTerm: ''})
-        this.state.chart.clear()
+        this.updateSearchQuery('');
     }
 
     handleSearchInputChange(event, data) {
@@ -128,21 +166,50 @@ class FlameGraph extends Component {
     }
 
     handleSearchClick() {
-        this.state.chart.search(this.state.searchTerm)
+        this.updateSearchQuery(this.state.searchTerm);
     }
 
     handleOnKeyDown(event) {
         if (event.which == 13) {
-            this.state.chart.search(this.state.searchTerm)
+            this.updateSearchQuery(this.state.searchTerm);
         }
+    }
+
+    updateSearchQuery(nextQuery) {
+        const params = new URLSearchParams(this.props.location.search);
+        if (nextQuery === '') {
+            params.delete('search');
+        } else {
+            params.set('search', nextQuery);
+        }
+        this.props.history.push({search: params.toString(),});
+    }
+
+    handleLayoutChange(event, data) {
+        this.setState({layout: data.value}, () => {
+            this.state.chart
+                .inverted(this.state.layout === layout.icicle)
+                .resetZoom()
+            localStorage.setItem('layout', this.state.layout)
+        })
     }
 
     render() {
         const searchButton = 
-        <Button color='red' size='small' onClick={this.handleSearchClick}>
+        <Button inverted color='red' size='small' onClick={this.handleSearchClick}>
             <Button.Content>Search</Button.Content>
         </Button>
-        
+        const layoutOptions = [
+            {
+                text: "Flame",
+                value: layout.flame
+            },
+            {
+                text: "Icicle",
+                value: layout.icicle
+            }
+        ]
+
         return (
             <div>
                 <Dimmer page inverted active={this.state.loading}>
@@ -150,12 +217,13 @@ class FlameGraph extends Component {
                 </Dimmer> 
                 <Container style={styles.container}>
                     <Container textAlign='right'>
-                        <Button inverted color='red' size='small' onClick={this.handleResetClick}>
+                        <Dropdown selection style={styles.layoutDropdown} options={layoutOptions} onChange={this.handleLayoutChange} defaultValue={this.state.layout} compact />
+                        <Button size='small' onClick={this.handleResetClick}>
                             <Button.Content>
                                 Reset Zoom
                             </Button.Content>
                         </Button>
-                        <Button inverted color='red' size='small' onClick={this.handleClearClick}>
+                        <Button size='small' onClick={this.handleClearClick}>
                             <Button.Content>
                                 Clear
                             </Button.Content>
@@ -188,6 +256,8 @@ class FlameGraph extends Component {
 }
 
 FlameGraph.propTypes = {
+    location: PropTypes.object.isRequired,
+    history: PropTypes.object.isRequired,
     match: PropTypes.object.isRequired,
     popBreadcrumb: PropTypes.func.isRequired,
     pushBreadcrumb: PropTypes.func.isRequired,

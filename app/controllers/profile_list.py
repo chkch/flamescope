@@ -17,22 +17,17 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-from flask import Blueprint, request, jsonify, abort
-from app.controllers.heatmap import generate_heatmap
-from app.common.error import InvalidFileError
+from os import walk
+from os.path import join
+from app import config
 
-MOD_HEATMAP = Blueprint(
-    'heatmap', __name__, url_prefix='/heatmap'
-)
+# get profile files
+def get_profile_list():
+    all_files = []
+    for root, dirs, files in walk(join(config.PROFILE_DIR)):
+        start = root[len(config.PROFILE_DIR) + 1:]
+        for f in files:
+            if not f.startswith('.'):
+                all_files.append(join(start, f))
 
-@MOD_HEATMAP.route("/", methods=['GET'])
-def get_heatmap():
-    filename = request.args.get('filename')
-    rows = request.args.get('rows', None)
-    if rows is not None:
-        rows = int(rows)
-    try:
-        heatmap = generate_heatmap(filename, rows)
-        return jsonify(heatmap)
-    except InvalidFileError as err:
-        abort(500, err.message)
+    return all_files

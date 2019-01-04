@@ -77,5 +77,18 @@ module.exports = {
   performance: {
     hints: false,
   },
+  devServer: {
+    proxy: {
+      '/profile/**': {
+        target: 'http://localhost:5000',
+      },
+      '/heatmap/**': {
+        target: 'http://localhost:5000',
+      },
+      '/flamegraph/**': {
+        target: 'http://localhost:5000',
+      },
+    },
+  },
 }
 

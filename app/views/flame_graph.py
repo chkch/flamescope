@@ -17,22 +17,24 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-from flask import Blueprint, request, jsonify, abort
-from app.controllers.heatmap import generate_heatmap
-from app.common.error import InvalidFileError
+from flask import Blueprint, Response, request, jsonify
+from app.controllers.flame_graph import generate_flame_graph
+from app.cpuprofile.flame_graph import Node
 
-MOD_HEATMAP = Blueprint(
-    'heatmap', __name__, url_prefix='/heatmap'
+MOD_FLAME_GRAPH = Blueprint(
+    'flamegraph', __name__, url_prefix='/flamegraph'
 )
 
-@MOD_HEATMAP.route("/", methods=['GET'])
-def get_heatmap():
+@MOD_FLAME_GRAPH.route("/", methods=['GET'])
+def get_flame_graph():
     filename = request.args.get('filename')
-    rows = request.args.get('rows', None)
-    if rows is not None:
-        rows = int(rows)
-    try:
-        heatmap = generate_heatmap(filename, rows)
-        return jsonify(heatmap)
-    except InvalidFileError as err:
-        abort(500, err.message)
+    range_start = request.args.get('start', None)
+    range_end = request.args.get('end', None)
+    flame_graph = generate_flame_graph(filename, range_start, range_end)
+    if isinstance(flame_graph, Node):
+        return Response(
+            response=flame_graph.toJSON(),
+            status=200,
+            mimetype='application/json'
+        )
+    return jsonify(flame_graph)

@@ -17,78 +17,41 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-from ..common import fileutil
-import os
-import gzip
 import collections
 from flask import abort
-from os import walk
-from os.path import abspath, join
+from os.path import join, getmtime
 from app import config
 from math import ceil, floor
-from .regexp import event_regexp, idle_regexp, comm_regexp, frame_regexp
+from app.perf.regexp import event_regexp, idle_regexp, comm_regexp, frame_regexp
+from app.common.fileutil import get_file
+from app.common.libtype import library2type
 
 stack_times = {}        # cached start and end times for profiles
 stack_mtimes = {}       # modification timestamp for profiles
 stack_index = {}        # cached event times
 
-# These functions support listing profiles and fetching their stack traces as
-# JSON, and for custom ranges. The profile parsed here is the output of
-# Linux "perf script". See the comment in regexp.py for a variety of output
-# that must be parsed correctly, which changes based on the Linux kernel
-# version, plus there are full examples as examples/perf.*.
-
-# get profile files
-def get_stack_list():
-    all_files = []
-    for root, dirs, files in walk(join(config.STACK_DIR)):
-        start = root[len(config.STACK_DIR) + 1:]
-        for f in files:
-            if not f.startswith('.'):
-                all_files.append(join(start, f))
-
-    return all_files
 
 # Get sample start and end, and populate stack_index for faster range lookup.
 # At this point we've probably already made a pass through the profile file
 # for generating its heatmap, so why not fetch these times then? Because we're
 # supporting a stateless interface, and the user may start here.
-def calculate_stack_range(filename):
+def calculate_profile_range(filename):
     start = float("+inf")
     end = float("-inf")
     index_factor = 100      # save one timestamp per this many lines
-    path = config.STACK_DIR + '/' + filename
 
-    if not fileutil.validpath(path):
-        return abort(500)
+    file_path = join(config.PROFILE_DIR, filename)
 
     # check for cached times
-    try:
-        mtime = os.path.getmtime(path)
-    except Exception:
-        print("ERROR: Can't check file stats for %s." % path)
-        return abort(500)
-    if path in stack_times:
-        if mtime == stack_mtimes[path]:
-            return stack_times[path]
+    mtime = getmtime(file_path)
+    if file_path in stack_times:
+        if mtime == stack_mtimes[file_path]:
+            return stack_times[file_path]
 
-    if filename.endswith(".gz"):
-        try:
-            f = gzip.open(path, 'rt')
-        except Exception:
-            print("ERROR: Can't open gzipped file, %s." % path)
-            f.close()
-            return abort(500)
-    else:
-        try:
-            f = open(path, 'r')
-        except Exception:
-            print("ERROR: Can't read stack file, %s." % path)
-            f.close()
-            return abort(500)
+    f = get_file(file_path)
 
     linenum = -1
-    stack_index[path] = []
+    stack_index[file_path] = []
     for line in f:
         linenum += 1
         # 1. Skip '#' comments
@@ -102,7 +65,7 @@ def calculate_stack_range(filename):
         if (r):
             ts = float(r.group(1))
             if ((linenum % index_factor) == 0):
-                stack_index[path].append([linenum, ts])
+                stack_index[file_path].append([linenum, ts])
             if (ts < start):
                 start = ts
             elif (ts > end):
@@ -110,21 +73,10 @@ def calculate_stack_range(filename):
 
     f.close()
     times = collections.namedtuple('range', ['start', 'end'])(floor(start), ceil(end))
-    stack_times[path] = times
-    stack_mtimes[path] = mtime
+    stack_times[file_path] = times
+    stack_mtimes[file_path] = mtime
 
     return times
-
-def library2type(library):
-    if library == "":
-        return ""
-    if library.startswith("/tmp/perf-"):
-        return "jit"
-    if library.startswith("["):
-        return "kernel"
-    if library.find("vmlinux") > 0:
-        return "kernel"
-    return "user"
 
 # add a stack to the root tree
 def add_stack(root, stack, comm):
@@ -162,34 +114,15 @@ def add_stack(root, stack, comm):
                 last = newframe
     return root
 
+
 # return stack samples for a given range
-def generate_stack(filename, range_start=None, range_end=None):
-    path = join(config.STACK_DIR, filename)
-    # ensure the file is below STACK_DIR:
-    if not abspath(path).startswith(abspath(config.STACK_DIR)):
-        print("ERROR: File %s is not in STACK_DIR" % path)
-        return abort(404)
+def perf_generate_flame_graph(filename, range_start=None, range_end=None):
+    file_path = join(config.PROFILE_DIR, filename)
 
-    if not fileutil.validpath(path):
-        return abort(500)
+    f = get_file(file_path)
 
-    if filename.endswith(".gz"):
-        try:
-            f = gzip.open(path, 'rt')
-        except Exception:
-            print("ERROR: Can't open gzipped file, %s." % path)
-            f.close()
-            return abort(500)
-    else:
-        try:
-            f = open(path, 'r')
-        except Exception:
-            print("ERROR: Can't read stack file, %s." % path)
-            f.close()
-            return abort(500)
-
-    # calculate stack file range
-    r = calculate_stack_range(filename)
+    # calculate profile file range
+    r = calculate_profile_range(filename)
     start = r.start
     end = r.end
 
@@ -223,8 +156,8 @@ def generate_stack(filename, range_start=None, range_end=None):
     # determine skip lines
     lastline = 0
     skiplines = 0
-    if path in stack_index:
-        for pair in stack_index[path]:
+    if file_path in stack_index:
+        for pair in stack_index[file_path]:
             if start < pair[1]:
                 # scanned too far, use last entry
                 skiplines = lastline
