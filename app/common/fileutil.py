@@ -21,8 +21,7 @@ import os
 import re
 import magic
 import gzip
-import json
-from json import JSONDecodeError
+from cachetools import cached, LRUCache
 from os.path import abspath
 from app.common.error import InvalidFileError
 from app.perf.regexp import event_regexp
@@ -31,7 +30,7 @@ from app import config
 invalidchars = re.compile('[^a-zA-Z0-9.,/_%+: -\\\\]')
 
 
-def validpath(file_path):
+def _validpath(file_path):
     if invalidchars.search(file_path):
         return False
     if not os.path.exists(file_path):
@@ -39,17 +38,20 @@ def validpath(file_path):
     return True
 
 
-def get_file_mime(file_path):
+def _get_file_mime(file_path):
     return magic.from_file(file_path, mime=True)
 
 
-def is_perf_file(f):
+def _is_perf_file(file_path):
+    f = get_file(file_path)
     for line in f:
         if (line[0] == '#'):
             continue
         r = event_regexp.search(line)
         if r:
+            f.close()
             return True
+        f.close()
         return False
 
 
@@ -57,35 +59,28 @@ def get_file(file_path):
     # ensure the file is below PROFILE_DIR:
     if not abspath(file_path).startswith(abspath(config.PROFILE_DIR)):
         raise InvalidFileError("File %s is not in PROFILE_DIR" % file_path)
-    if not validpath(file_path):
+    if not _validpath(file_path):
         raise InvalidFileError("Invalid characters or file %s does not exist." % file_path)
-
-    mime = get_file_mime(file_path)
-
+    mime = _get_file_mime(file_path)
     if mime in ['application/x-gzip', 'application/gzip']:
         return gzip.open(file_path, 'rt')
     elif mime == 'text/plain':
         return open(file_path, 'r')
+    elif mime == 'application/octet-stream':
+        return open(file_path, 'rb')
     else:
         raise InvalidFileError('Unknown mime type.')
 
 
+@cached(cache=LRUCache(maxsize=1024))
 def get_profile_type(file_path):
-    f = get_file(file_path)
-    if is_perf_file(f):
-        f.close()
-        return ('perf_script', None)
+    mime = _get_file_mime(file_path)
+    if mime == 'application/octet-stream':
+        return 'nflxprofile'
+    elif mime in ['text/plain', 'application/x-gzip', 'application/gzip']:
+        if _is_perf_file(file_path):
+            return 'perf'
+        else:
+            return 'trace_event'
     else:
-        try:
-            f.seek(0)
-            r = json.load(f)
-            f.close()
-            if isinstance(r, list):
-                if 'ph' in r[0]:
-                    return ('trace_event', r)
-            elif 'nodes' in r:
-                return ('cpuprofile', r)
-            raise InvalidFileError('Unknown JSON file.')
-        except JSONDecodeError:
-            f.close()
-            raise InvalidFileError('Unknown file type.')
+        return 'unknown'

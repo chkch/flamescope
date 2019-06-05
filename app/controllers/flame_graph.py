@@ -17,24 +17,25 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-from os.path import join
-from app.common.fileutil import get_profile_type
+from os.path import join, getmtime
 from app.common.error import InvalidFileError
 from app.perf.flame_graph import perf_generate_flame_graph
 from app.cpuprofile.flame_graph import cpuprofile_generate_flame_graph
+from app.nflxprofile.flame_graph import nflxprofile_generate_flame_graph
+from app.trace_event.flame_graph import trace_event_generate_flame_graph
 from app import config
 
-def generate_flame_graph(filename, range_start, range_end, profile_type=None):
-    parsed_profile = None
-    if not profile_type:
-        file_path = join(config.PROFILE_DIR, filename)
-        (profile_type, parsed_profile) = get_profile_type(file_path)
-    if profile_type == 'perf_script':
-        return perf_generate_flame_graph(filename, range_start, range_end)
-    elif profile_type == 'cpuprofile':
-        return cpuprofile_generate_flame_graph(filename, range_start, range_end, parsed_profile)
-    elif profile_type == 'trace_event':
-        # TODO: process trace_event file.
-        raise InvalidFileError('Unknown file type.')
+
+def generate_flame_graph(filename, file_type, range_start, range_end, package_name=False):
+    file_path = join(config.PROFILE_DIR, filename)
+    mtime = getmtime(file_path)
+    if file_type == 'perf':
+        return perf_generate_flame_graph(file_path, range_start, range_end)
+    elif file_type == 'cpuprofile':
+        return cpuprofile_generate_flame_graph(file_path, range_start, range_end)
+    elif file_type == 'trace_event':
+        return trace_event_generate_flame_graph(file_path, mtime, range_start, range_end)
+    elif file_type == 'nflxprofile':
+        return nflxprofile_generate_flame_graph(file_path, range_start, range_end, package_name)
     else:
         raise InvalidFileError('Unknown file type.')

@@ -22,7 +22,8 @@ from os.path import join, getmtime
 from app import config
 from app.perf.heatmap import perf_read_offsets
 from app.cpuprofile.heatmap import cpuprofile_read_offsets
-from app.common.fileutil import get_profile_type
+from app.nflxprofile.heatmap import nflxprofile_readoffsets
+from app.trace_event.heatmap import trace_event_read_offsets
 from app.common.error import InvalidFileError
 
 # global defaults
@@ -34,30 +35,29 @@ offsets_cache = {}
 offsets_mtimes = {}
 
 
-def read_offsets(file_path):
+def _read_offsets(file_path, file_type):
     # fetch modification timestamp and check cache
     mtime = getmtime(file_path)
     if file_path in offsets_cache:
         if mtime == offsets_mtimes[file_path]:
             # use cached heatmap
             return offsets_cache[file_path]
-    # find profile type and parse offsets
-    (profile_type, parsed_profile) = get_profile_type(file_path)
-    if profile_type == 'perf_script':
+    if file_type == 'perf':
         return perf_read_offsets(file_path)
-    elif profile_type == 'cpuprofile':
-        return cpuprofile_read_offsets(parsed_profile)
-    elif profile_type == 'trace_event':
-        # TODO: process trace_event file.
-        raise InvalidFileError('Unknown file type.')
+    elif file_type == 'cpuprofile':
+        return cpuprofile_read_offsets(file_path)
+    elif file_type == 'trace_event':
+        return trace_event_read_offsets(file_path, mtime)
+    elif file_type == 'nflxprofile':
+        return nflxprofile_readoffsets(file_path)
     else:
         raise InvalidFileError('Unknown file type.')
 
 
 # return a heatmap from the cached offsets
-def generate_heatmap(filename, rows=None):
+def generate_heatmap(filename, file_type, rows=None):
     file_path = join(config.PROFILE_DIR, filename)
-    (start, end, offsets) = read_offsets(file_path)
+    (start, end, offsets) = _read_offsets(file_path, file_type)
     maxvalue = 0
 
     if rows is None:

@@ -1,6 +1,6 @@
 /**
  *
- *  Copyright 2018 Netflix, Inc.
+ *  Copyright 2019 Netflix, Inc.
  *
  *     Licensed under the Apache License, Version 2.0 (the "License");
  *     you may not use this file except in compliance with the License.
@@ -17,33 +17,21 @@
  */
 
 import React, { Component } from 'react'
-import { Header, Segment } from 'semantic-ui-react'
 import PropTypes from 'prop-types'
-import queryString from 'query-string'
+import FlameGraph from '../FlameGraph'
 
-const styles = {
-    header: {
-        marginTop: '75px',
-    }
-}
-
-class Error extends Component {
+class DifferentialFlameGraph extends Component {
     render() {
-        const { code } = this.props.match.params
-        const query = queryString.parse(this.props.location.search)
-        const message = query['message']
         return (
-            <div>
-                <Header as='h1' style={styles.header}>Error {code}</Header>
-                <Segment>{message}</Segment>
-            </div>
+            <FlameGraph compare='differential' match={this.props.match} location={this.props.location} history={this.props.history} />
         )
     }
 }
 
-Error.propTypes = {
+DifferentialFlameGraph.propTypes = {
+    history: PropTypes.object.isRequired,
     match: PropTypes.object.isRequired,
     location: PropTypes.object.isRequired,
 }
 
-export default Error
+export default DifferentialFlameGraph

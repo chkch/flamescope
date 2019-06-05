@@ -17,26 +17,23 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-from os import walk
-from os.path import join
-
-from app import config
-from app.common.fileutil import get_profile_type
+from cachetools import cached, LRUCache
+from cachetools.keys import hashkey
 
 
-# get profile files
-def get_profile_list():
-    all_files = []
-    for root, dirs, files in walk(join(config.PROFILE_DIR)):
-        start = root[len(config.PROFILE_DIR) + 1:]
-        for f in files:
-            if not f.startswith('.'):
-                filename = join(start, f)
-                file_path = join(config.PROFILE_DIR, filename)
-                file_type = get_profile_type(file_path)
-                all_files.append({
-                    'filename': filename,
-                    'type': file_type
-                })
+@cached(cache=LRUCache(maxsize=256), key=lambda file_path, mtime, profile: hashkey(file_path, mtime))
+def get_time_range(file_path, mtime, profile):
+    start_time = None
+    end_time = None
 
-    return all_files
+    for row in profile:
+        if row['ph'] != 'M':
+            start_time = row['ts']
+            break
+
+    for row in reversed(profile):
+        if row['ph'] != 'M':
+            end_time = row['ts']
+            break
+
+    return (start_time, end_time)

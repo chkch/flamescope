@@ -18,14 +18,15 @@
 
 import React, { Component } from 'react'
 import PropTypes from 'prop-types'
-import { Dimmer, Loader, Divider, Button, Container, Modal, Dropdown, Label, Checkbox } from 'semantic-ui-react'
-import { pushBreadcrumb, popBreadcrumb } from '../../actions/Navbar'
+import { Dimmer, Loader, Divider, Button, Container, Modal, Dropdown, Label, Checkbox, Grid, Icon } from 'semantic-ui-react'
 import { connect } from 'react-redux'
 import { select } from 'd3-selection'
 import { scaleLinear } from 'd3-scale'
 import { heatmap } from 'd3-heatmap2'
+import queryString from 'query-string'
 import 'd3-heatmap2/dist/d3-heatmap2.css'
 import './heatmap.less'
+import checkStatus from '../../common/CheckStatus'
 
 const styles = {
     container: {
@@ -70,6 +71,8 @@ class Heatmap extends Component {
             'handleEnhanceColors',
             'handleRowsChange',
             'fetchData',
+            'handleBackClick',
+            'handleFullProfileClick',
         ].forEach((k) => {
           this[k] = this[k].bind(this);
         });
@@ -83,27 +86,17 @@ class Heatmap extends Component {
         };
     }
 
-    UNSAFE_componentWillMount() {
-        const { filename } = this.props.match.params
-
-        this.props.pushBreadcrumb('heatmap_' + filename, 'Heatmap (' + filename + ')', '/#/heatmap/' + filename)
-    }
-
     componentDidMount() {
         this.fetchData()
     }
 
-    componentWillUnmount() {
-        const { filename } = this.props.match.params
-        this.props.popBreadcrumb('heatmap_' + filename)
-    }
-
     fetchData() {
-        const { filename } = this.props.match.params
+        const { filename, type } = this.props.match.params
         const { rows } = this.state
 
         this.setState({loading: true})
-        fetch('/heatmap/?filename=' + filename + '&rows=' + rows)
+        fetch(`/heatmap/?filename=${filename}&type=${type}&rows=${rows}`)
+            .then(checkStatus)
             .then(res => {
                 return res.json()
             })
@@ -113,20 +106,33 @@ class Heatmap extends Component {
             .then( () => {
                 this.drawHeatmap()
             })
+            .catch((error) => {
+                error.response.json()
+                    .then( json => {
+                        this.props.history.push(`/error/${error.code}?${queryString.stringify({message: json.error})}`)
+                    })
+                    .catch(() => {
+                        this.props.history.push(`/error/${error.code}?${queryString.stringify({message: error.message})}`)
+                    })
+            })
     }
 
     drawHeatmap() {
+        const self = this
         const { data , enhanceColors} = this.state;
-        const { filename } = this.props.match.params
+        const { filename, type, compareType, compareFilename, compareStart, compareEnd } = this.props.match.params
 
         const heatmapNode = document.getElementById('heatmap')
         while (heatmapNode.firstChild) {
             heatmapNode.removeChild(heatmapNode.firstChild)
         }
 
-        var width = heatmapNode.offsetWidth
+        const legendNode = document.getElementById('legend')
+        while (legendNode.firstChild) {
+            legendNode.removeChild(legendNode.firstChild)
+        }
 
-        document.getElementById('heatmap')
+        var width = heatmapNode.offsetWidth
 
         var gridSize = width / data.columns.length
 
@@ -195,15 +201,26 @@ class Heatmap extends Component {
               chart.setHighlight([{"start": selectStart, "end": selectStart}])
               chart.updateHighlight()
             } else if (!selectEnd) {
-              if (isBefore(selectStart, cell)) {
-                selectEnd = cell
-              } else {
-                selectEnd = selectStart
-                selectStart = cell
-              }
-              chart.setHighlight([{"start": selectStart, "end": selectEnd}])
-              chart.updateHighlight()
-              window.location.href = `/#/heatmap/${filename}/flamegraph/${heatmap2time(selectStart)}/${heatmap2time(selectEnd, true)}/`;
+                if (isBefore(selectStart, cell)) {
+                    selectEnd = cell
+                } else {
+                    selectEnd = selectStart
+                    selectStart = cell
+                }
+                chart.setHighlight([{"start": selectStart, "end": selectEnd}])
+                chart.updateHighlight()
+
+                let url = `/flamegraph/${type}/${filename}/${heatmap2time(selectStart)}/${heatmap2time(selectEnd, true)}`
+
+                if (compareType && compareFilename) {
+                    url = `/differential/${compareType}/${compareFilename}`
+                    if (compareStart && compareEnd) {
+                        url += `/${compareStart}/${compareEnd}`
+                    }
+                    url += `/compare/${type}/${filename}/${heatmap2time(selectStart)}/${heatmap2time(selectEnd, true)}`
+                }
+
+                self.props.history.push(url)
             } else {
               selectStart = cell
               selectEnd = null
@@ -299,6 +316,26 @@ class Heatmap extends Component {
         )
     }
 
+    handleBackClick() {
+        this.props.history.goBack();
+    }
+
+    handleFullProfileClick() {
+        const { filename, type, compareType, compareFilename, compareStart, compareEnd } = this.props.match.params
+
+        let url = `/flamegraph/${type}/${filename}`
+
+        if (compareType && compareFilename) {
+            url = `/differential/${compareType}/${compareFilename}`
+            if (compareStart && compareEnd) {
+                url += `/${compareStart}/${compareEnd}`
+            }
+            url += `/compare/${type}/${filename}`
+        }
+
+        this.props.history.push(url)
+    }
+
     render() {
         return (
             <div>
@@ -324,34 +361,39 @@ class Heatmap extends Component {
                     </Modal.Actions>
                 </Modal>
                 <Container style={styles.container}>
-                    <Container textAlign='right'>
-                        <Label pointing='right' color='red' size='large'>
-                            Rows
-                        </Label>
-                        <Dropdown
-                            options={rowsOptions}
-                            onChange={this.handleRowsChange}
-                            value={this.state.rows}
-                            compact
-                            selection
-                            labeled
-                        />
-                        {/*<Button animated='vertical' color='red' onClick={this.handleSettingsOpen}>
-                            <Button.Content hidden>Settings</Button.Content>
-                            <Button.Content visible>
-                                <Icon name='cogs' />
-                            </Button.Content>
-                        </Button>*/}
-                        <Label pointing='right' color='red' size='large' style={styles.enhanceLabel}>
-                            Enhanced
-                        </Label>
-                        <Checkbox
-                            toggle
-                            checked={this.state.enhanceColors}
-                            onClick={this.handleEnhanceColors}
-                            style={styles.enhanceToggle}
-                        />
-                    </Container>
+                    <Grid>
+                        <Grid.Column width={4}>
+                            <Button content='Back' icon='left arrow' onClick={this.handleBackClick} />
+                        </Grid.Column>
+                        <Grid.Column width={12} textAlign='right'>
+                            <Label pointing='right' color='red' size='large'>
+                                Rows
+                            </Label>
+                            <Dropdown
+                                options={rowsOptions}
+                                onChange={this.handleRowsChange}
+                                value={this.state.rows}
+                                compact
+                                selection
+                                labeled
+                            />
+                            {/*<Button animated='vertical' color='red' onClick={this.handleSettingsOpen}>
+                                <Button.Content hidden>Settings</Button.Content>
+                                <Button.Content visible>
+                                    <Icon name='cogs' />
+                                </Button.Content>
+                            </Button>*/}
+                            <Label pointing='right' color='red' size='large' style={styles.enhanceLabel}>
+                                Enhanced
+                            </Label>
+                            <Checkbox
+                                toggle
+                                checked={this.state.enhanceColors}
+                                onClick={this.handleEnhanceColors}
+                                style={styles.enhanceToggle}
+                            />
+                        </Grid.Column>
+                    </Grid>
                     <Divider />
                     <div
                         ref={`heatmap`}
@@ -359,7 +401,6 @@ class Heatmap extends Component {
                         key={`heatmap`}
                         className={`heatmap`}
                     />
-
                     <div
                         ref={`legend`}
                         id={`legend`}
@@ -367,12 +408,22 @@ class Heatmap extends Component {
                         className={`legend`}
                     />
                     <Divider />
-                    <div
-                        ref={`details`}
-                        id={`details`}
-                        key={`details`}
-                        style={styles.details}
-                    />
+                    <Grid>
+                        <Grid.Column width={12}>
+                            <div
+                                ref={`details`}
+                                id={`details`}
+                                key={`details`}
+                                style={styles.details}
+                            />
+                        </Grid.Column>
+                        <Grid.Column width={4} textAlign='right'>
+                            <Button icon labelPosition='right' onClick={this.handleFullProfileClick}>
+                                Whole Profile
+                                <Icon name='right arrow' />
+                            </Button>
+                        </Grid.Column>
+                    </Grid>
                 </Container>
             </div>
         )
@@ -381,8 +432,7 @@ class Heatmap extends Component {
 
 Heatmap.propTypes = {
     match: PropTypes.object.isRequired,
-    popBreadcrumb: PropTypes.func.isRequired,
-    pushBreadcrumb: PropTypes.func.isRequired,
+    history: PropTypes.object.isRequired,
 }
 
 const mapStateToProps = () => {
@@ -390,14 +440,8 @@ const mapStateToProps = () => {
     }
 }
 
-const mapDispatchToProps = dispatch => {
+const mapDispatchToProps = () => {
     return {
-        pushBreadcrumb: (key, content, href) => {
-            dispatch(pushBreadcrumb(key, content, href))
-        },
-        popBreadcrumb: key => {
-            dispatch(popBreadcrumb(key))
-        }
     }
 }
 

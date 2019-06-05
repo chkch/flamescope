@@ -25,14 +25,16 @@ MOD_HEATMAP = Blueprint(
     'heatmap', __name__, url_prefix='/heatmap'
 )
 
+
 @MOD_HEATMAP.route("/", methods=['GET'])
 def get_heatmap():
     filename = request.args.get('filename')
+    file_type = request.args.get('type')
     rows = request.args.get('rows', None)
     if rows is not None:
         rows = int(rows)
     try:
-        heatmap = generate_heatmap(filename, rows)
+        heatmap = generate_heatmap(filename, file_type, rows)
         return jsonify(heatmap)
     except InvalidFileError as err:
         abort(500, err.message)

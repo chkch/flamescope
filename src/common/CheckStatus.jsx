@@ -16,10 +16,15 @@
  *
  */
 
-export { default as FlameGraph } from './FlameGraph'
-export { default as DifferentialFlameGraph } from './DifferentialFlameGraph'
-export { default as ElidedFlameGraph } from './ElidedFlameGraph'
-export { default as Heatmap } from './Heatmap'
-export { default as Navbar } from './Navbar'
-export { default as FileList } from './FileList'
-export { default as Error } from './Error'
+export default function checkStatus(response) {
+    if (!response.ok) {
+        const error = new Error(response.statusText)
+        error.code = response.status
+        error.response = response
+        throw error
+    }
+    return response  //we only get here if there is no error
+    
+    
+}
+  

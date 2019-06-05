@@ -17,24 +17,25 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-from flask import Blueprint, Response, request, jsonify
+from flask import Blueprint, request, jsonify
 from app.controllers.flame_graph import generate_flame_graph
-from app.cpuprofile.flame_graph import Node
 
 MOD_FLAME_GRAPH = Blueprint(
     'flamegraph', __name__, url_prefix='/flamegraph'
 )
 
+
 @MOD_FLAME_GRAPH.route("/", methods=['GET'])
 def get_flame_graph():
     filename = request.args.get('filename')
+    file_type = request.args.get('type')
+    package_name = request.args.get('packageName', False)
+    package_name = True if package_name and package_name == 'true' else False
     range_start = request.args.get('start', None)
+    if range_start is not None:
+        range_start = float(range_start)
     range_end = request.args.get('end', None)
-    flame_graph = generate_flame_graph(filename, range_start, range_end)
-    if isinstance(flame_graph, Node):
-        return Response(
-            response=flame_graph.toJSON(),
-            status=200,
-            mimetype='application/json'
-        )
+    if range_end is not None:
+        range_end = float(range_end)
+    flame_graph = generate_flame_graph(filename, file_type, range_start, range_end, package_name)
     return jsonify(flame_graph)
